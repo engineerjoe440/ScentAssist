@@ -19,10 +19,10 @@
 #define LED_OUTPUT_PIN 11
 
 /***************************** TIME CONSTANTS *********************************/
-const uint32_t c_DELAY_TIME = 5 * 60 * 1000;       // 5 Minutes
-const uint32_t c_RUN_TIME = 2 * 60 * 1000;         // 2 Minutes
-const uint32_t c_HEARTBEAT_BLINK_TIME = 5 * 1000;  // 5 Seconds
-const uint32_t c_WAITING_BLINK_TIME = 100;         // 100 Milliseconds
+const uint32_t c_DELAY_TIME = 300000000;         // 5 Minutes
+const uint32_t c_RUN_TIME = 120000000;           // 2 Minutes
+const uint32_t c_HEARTBEAT_BLINK_TIME = 5000000; // 5 Seconds
+const uint32_t c_WAITING_BLINK_TIME = 100000;    // 100 Milliseconds
 
 /*************************** STATE ENUMERATIONS *******************************/
 enum controlState {
@@ -34,22 +34,33 @@ enum controlState {
 
 /****************************      SETUP      *********************************/
 void setup() {
+  Serial.begin(115200);
+  Serial.println("ScentAssist STARTUP - (c) STANLEY SOLUTIONS");
+
   // Initialize the I/O Pins
   pinMode(MOTION_INPUT_PIN, INPUT);
   pinMode(PUSHBUTTON_INPUT_PIN, INPUT_PULLUP);
   pinMode(RELAY_OUTPUT_PIN, OUTPUT);
   pinMode(LED_OUTPUT_PIN, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
 
   // Set Output Defaults
   digitalWrite(RELAY_OUTPUT_PIN, false);
-  digitalWrite(LED_OUTPUT_PIN, false);
+  for (uint8_t i = 0; i < 10; i++) {
+    digitalWrite(LED_OUTPUT_PIN, true);
+    delay(100);
+    digitalWrite(LED_OUTPUT_PIN, false);
+    delay(100);
+  }
+
+  Serial.println("READY.");
 }
 
 uint32_t timepassed(uint32_t timeLeft, unsigned long lastTime) {
   /*******   Evaluate the difference, do not allow negative-overflow.   *******/
   uint32_t timeElapsed;
 
-  timeElapsed = uint32_t(millis() - lastTime);
+  timeElapsed = uint32_t(micros() - lastTime);
 
   // Evaluate Time Remaining, 0 as an absolute minimum.
   if (timeElapsed < timeLeft) {
@@ -63,50 +74,61 @@ uint32_t timepassed(uint32_t timeLeft, unsigned long lastTime) {
 
 void blink(uint32_t blinkFrequency) {
   /*******   Blink the LED at a specified frequency of milliseconds.    *******/
-  static unsigned long lastTime = 0;
-  static uint32_t msecRemaining = 0;
+  static unsigned long lastUSec = 0;
+  static uint32_t usecRemaining = 0;
 
   // Deduct the milliseconds that have passed since last scan.
-  msecRemaining = timepassed(msecRemaining, lastTime);
+  usecRemaining = timepassed(usecRemaining, lastUSec);
 
-  if (msecRemaining == 0) {
+  if (usecRemaining == 0) {
     // Change State of LED
-    digitalWrite(LED_OUTPUT_PIN, !digitalRead(LED_OUTPUT_PIN));
+    if (!digitalRead(LED_OUTPUT_PIN)) {
+      digitalWrite(LED_OUTPUT_PIN, true);
 
-    // Reset/Update Blink Frequency
-    msecRemaining = blinkFrequency;
+      // Short Period
+      usecRemaining = 100000; // 100 milliseconds
+    } else {
+      digitalWrite(LED_OUTPUT_PIN, false);
+
+      // Reset/Update Blink Frequency
+      usecRemaining = blinkFrequency;
+    }
   }
+  
+  lastUSec = micros();
 }
 
 
 /****************************      EXECUTE    *********************************/
 void loop() {
-  controlState state = controlState::IDLE; // Operating State of System.
+  static controlState state = controlState::IDLE; // Operating State of System.
+  static unsigned long lastUSec = 0; // Last time which was sampled.
+  static uint32_t timeRemaining = 0; // Time remaining until fan start.
+  static uint32_t fanTimeRemain = 0; // Time remaining of fan run.
+  static bool motionDetected = false; // Motion has been detected.
+  static bool fanRunning = false; // Control indicator that fan is running.
   controlState nextState = state; // Next state system will operate in.
-  unsigned long lastTime = 0; // Last time which was sampled.
-  uint32_t timeRemaining = 0; // Time remaining until fan start.
-  uint32_t fanTimeRemain = 0; // Time remaining of fan run.
-  uint32_t tempTime; // Temporary variable to represent time delta.
-  bool motionDetected = false; // Motion has been detected, and fan should run.
   bool manualActivate = false; // Manually activated by pushbutton.
-  bool fanRunning = false; // Control indicator that fan is running.
 
   // Decrement timers as needed.
   if (timeRemaining > 0) {
     // Subtract the Time-Delta, Ensuring 0 is the minimum viable time value.
-    timeRemaining = timepassed(timeRemaining, lastTime);
+    timeRemaining = timepassed(timeRemaining, lastUSec);
   }
   if (fanTimeRemain > 0) {
-    fanTimeRemain = timepassed(fanTimeRemain, lastTime);
+    fanTimeRemain = timepassed(fanTimeRemain, lastUSec);
   }
-  lastTime = millis(); // Update Time Reference
+  lastUSec = micros(); // Update Time Reference
 
   // Read Inputs
-  motionDetected = digitalRead(MOTION_INPUT_PIN);
+  motionDetected |= digitalRead(MOTION_INPUT_PIN);
   manualActivate = digitalRead(PUSHBUTTON_INPUT_PIN);
 
+  // Indicate (internally) that Motion has been Detected
+  digitalWrite(LED_BUILTIN, motionDetected);
+
   // Control Blinking Behavior
-  if (!fanRunning && (timeRemaining == 0)) {
+  if ((!fanRunning) && (timeRemaining == 0)) {
     // Perform Heartbeat Blink
     blink(c_HEARTBEAT_BLINK_TIME);
   } else if (timeRemaining > 0) {
@@ -121,10 +143,10 @@ void loop() {
       if (motionDetected) {
         // Move to the Detected State
         nextState = controlState::DETECTED;
-      } else if (manualActivate || (timeRemaining == 0)) {
+      } else if (manualActivate || ((timeRemaining == 0) && motionDetected)) {
         // Move to Activate Fan, Immediately
         nextState = controlState::ACTIVATE;
-      } else if (fanTimeRemain == 0) {
+      } else if ((fanTimeRemain == 0) && fanRunning) {
         // Move to Deactivate Fan
         nextState = controlState::RESET;
       }
@@ -133,6 +155,7 @@ void loop() {
     }
     case controlState::DETECTED: {
       /**********************    DETECTED STATE    ****************************/
+      Serial.println("State: DETECTED");
       if (fanRunning) {
         // If already running, just move to reset timer for fan runtime
         nextState = controlState::ACTIVATE;
@@ -145,19 +168,28 @@ void loop() {
     }
     case controlState::ACTIVATE: {
       /**********************    ACTIVATE STATE    ****************************/
+      Serial.println("State: ACTIVATE");
+      fanRunning = true;
+      motionDetected = false;
+      fanTimeRemain = c_RUN_TIME; // Set fan runtime to maximum
       digitalWrite(RELAY_OUTPUT_PIN, true); // Turn On
       digitalWrite(LED_OUTPUT_PIN, true);
-      fanTimeRemain = c_RUN_TIME; // Set fan runtime to maximum
 
       // Reset Time Remaining (in case of manual activation)
       timeRemaining = 0;
+
+      nextState = controlState::IDLE;
       break;
       /**********************  END ACTIVATE STATE  ****************************/
     }
     case controlState::RESET: {
       /**********************     RESET STATE      ****************************/
+      Serial.println("State: RESET");
+      fanRunning = false;
       digitalWrite(RELAY_OUTPUT_PIN, false); // Turn Off
       digitalWrite(LED_OUTPUT_PIN, false);
+
+      nextState = controlState::IDLE;
       break;
       /**********************   END RESET STATE    ****************************/
     }
