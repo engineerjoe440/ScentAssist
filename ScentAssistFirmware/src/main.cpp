@@ -36,7 +36,7 @@ enum controlState {
 void setup() {
   // Initialize the I/O Pins
   pinMode(MOTION_INPUT_PIN, INPUT);
-  pinMode(PUSHBUTTON_INPUT_PIN, INPUT);
+  pinMode(PUSHBUTTON_INPUT_PIN, INPUT_PULLUP);
   pinMode(RELAY_OUTPUT_PIN, OUTPUT);
   pinMode(LED_OUTPUT_PIN, OUTPUT);
 
