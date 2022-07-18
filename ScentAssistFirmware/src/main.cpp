@@ -13,11 +13,10 @@
 #include <Arduino.h>
 
 /**************************** PIN DEFINITIONS *********************************/
-#define MOTION_INPUT_PIN 0
-#define PUSHBUTTON_INPUT_PIN 0
-#define RELAY_OUTPUT_PIN 0
-#define LED_OUTPUT_PIN 0
-#define EXTRA_GND_PIN 0
+#define MOTION_INPUT_PIN 5
+#define PUSHBUTTON_INPUT_PIN 12
+#define RELAY_OUTPUT_PIN 6
+#define LED_OUTPUT_PIN 11
 
 /***************************** TIME CONSTANTS *********************************/
 const uint32_t c_DELAY_TIME = 5 * 60 * 1000;       // 5 Minutes
@@ -40,10 +39,6 @@ void setup() {
   pinMode(PUSHBUTTON_INPUT_PIN, INPUT);
   pinMode(RELAY_OUTPUT_PIN, OUTPUT);
   pinMode(LED_OUTPUT_PIN, OUTPUT);
-  pinMode(EXTRA_GND_PIN, OUTPUT);
-
-  // Set GND PIN
-  digitalWrite(EXTRA_GND_PIN, false);
 
   // Set Output Defaults
   digitalWrite(RELAY_OUTPUT_PIN, false);
