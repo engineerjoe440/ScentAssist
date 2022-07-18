@@ -179,6 +179,7 @@ void loop() {
       timeRemaining = 0;
 
       nextState = controlState::IDLE;
+      delay(350); // Debounce
       break;
       /**********************  END ACTIVATE STATE  ****************************/
     }
