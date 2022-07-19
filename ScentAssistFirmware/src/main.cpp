@@ -25,10 +25,11 @@
 #define MIN_THRESHOLD 20 // Determined by Experimentation
 
 /***************************** TIME CONSTANTS *********************************/
-const uint32_t c_DELAY_TIME = 300000000;         // 5 Minutes
-const uint32_t c_RUN_TIME = 120000000;           // 2 Minutes
-const uint32_t c_HEARTBEAT_BLINK_TIME = 5000000; // 5 Seconds
-const uint32_t c_WAITING_BLINK_TIME = 100000;    // 100 Milliseconds
+const uint32_t c_DELAY_TIME = 300000000;          // 5 Minutes
+const uint32_t c_RUN_TIME = 120000000;            // 2 Minutes
+const uint32_t c_HEARTBEAT_BLINK_TIME = 5000000;  // 5 Seconds
+const uint32_t c_BLOCK_DETECTION_DELAY = 3000000; // 3 Seconds
+const uint32_t c_WAITING_BLINK_TIME = 100000;     // 100 Milliseconds
 
 /*************************** STATE ENUMERATIONS *******************************/
 enum controlState {
@@ -149,21 +150,12 @@ void loop() {
   static controlState state = controlState::IDLE; // Operating State of System.
   static unsigned long lastUSec = 0; // Last time which was sampled.
   static uint32_t timeRemaining = 0; // Time remaining until fan start.
+  static uint32_t stopDetection = 0; // Blocking condition for motion detect.
   static uint32_t fanTimeRemain = 0; // Time remaining of fan run.
   static bool fanRunning = false; // Control indicator that fan is running.
   controlState nextState = state; // Next state system will operate in.
   bool motionDetected = false; // Motion has been detected.
   bool manualActivate = false; // Manually activated by pushbutton.
-
-  // Decrement timers as needed.
-  if (timeRemaining > 0) {
-    // Subtract the Time-Delta, Ensuring 0 is the minimum viable time value.
-    timeRemaining = timepassed(timeRemaining, lastUSec);
-  }
-  if (fanTimeRemain > 0) {
-    fanTimeRemain = timepassed(fanTimeRemain, lastUSec);
-  }
-  lastUSec = micros(); // Update Time Reference
 
   // Read Inputs
   motionDetected = qualifyAnalog();
@@ -171,6 +163,25 @@ void loop() {
 
   // Indicate (internally) that Motion has been Detected
   digitalWrite(LED_BUILTIN, motionDetected);
+
+  // Decrement timers as needed.
+  if (timeRemaining > 0) {
+    // Subtract the Time-Delta, Ensuring 0 is the minimum viable time value.
+    timeRemaining = timepassed(timeRemaining, lastUSec);
+
+    // Monitor for Timer Elapse
+    if (timeRemaining == 0) {
+      // Move to Activate Fan, Immediately
+      nextState = controlState::ACTIVATE;
+    }
+  }
+  if (stopDetection > 0) {
+    stopDetection = timepassed(stopDetection, lastUSec);
+  }
+  if (fanTimeRemain > 0) {
+    fanTimeRemain = timepassed(fanTimeRemain, lastUSec);
+  }
+  lastUSec = micros(); // Update Time Reference
 
   // Control Blinking Behavior
   if ((!fanRunning) && (timeRemaining == 0)) {
@@ -185,14 +196,17 @@ void loop() {
   switch (state) {
     case controlState::IDLE: {
       /**********************      IDLE STATE      ****************************/
-      if (motionDetected) {
+      if (motionDetected && (stopDetection == 0)) {
         // Move to the Detected State
         nextState = controlState::DETECTED;
-      } else if (manualActivate || ((timeRemaining == 0) && motionDetected)) {
+      } else if (manualActivate) {
         // Move to Activate Fan, Immediately
         nextState = controlState::ACTIVATE;
       } else if ((fanTimeRemain == 0) && fanRunning) {
         // Move to Deactivate Fan
+        nextState = controlState::RESET;
+      } else if (fanRunning && manualActivate) {
+        // Deactivate Fan
         nextState = controlState::RESET;
       }
       break;
@@ -209,6 +223,8 @@ void loop() {
         timeRemaining = c_DELAY_TIME;
         nextState = controlState::IDLE;
       }
+      // Ignore Subsequent Pickups for a Delay Period
+      stopDetection = c_BLOCK_DETECTION_DELAY;
       break;
       /**********************  END DETECTED STATE  ****************************/
     }
