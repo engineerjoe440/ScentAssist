@@ -12,11 +12,17 @@
 
 #include <Arduino.h>
 
+//#define DEBUG true  // Uncomment to Turn On Motion Sensor Debugging Statements
+
 /**************************** PIN DEFINITIONS *********************************/
-#define MOTION_INPUT_PIN 5
+#define MOTION_INPUT_PIN A0
 #define PUSHBUTTON_INPUT_PIN 12
 #define RELAY_OUTPUT_PIN 6
 #define LED_OUTPUT_PIN 11
+
+/*************************** GENERAL CONSTANTS ********************************/
+#define FILTER_LENGTH 10 // Seemed Reasonable
+#define MIN_THRESHOLD 20 // Determined by Experimentation
 
 /***************************** TIME CONSTANTS *********************************/
 const uint32_t c_DELAY_TIME = 300000000;         // 5 Minutes
@@ -54,6 +60,45 @@ void setup() {
   }
 
   Serial.println("READY.");
+}
+
+bool qualifyAnalog() {
+  /*******   Qualify analog input to determine motion sensor pickup.    *******/
+  static uint8_t readings[FILTER_LENGTH];
+  static uint8_t readingIndex;
+  uint8_t sample = analogRead(MOTION_INPUT_PIN); // Collect This Sample
+  uint8_t average = 0;
+  bool detect;
+
+  // Evaluate Average
+  for (uint8_t i = 0; i++; i < FILTER_LENGTH) {
+    average += readings[i];
+  }
+  average = average / FILTER_LENGTH;
+
+  // Load the Most Recent Sample
+  readings[readingIndex] = sample;
+  
+  // Update Index
+  if (readingIndex == FILTER_LENGTH) {
+    readingIndex = 0;
+  } else {
+    readingIndex++;
+  }
+
+  detect = sample > (4 * max(MIN_THRESHOLD, average));
+
+  /***************               DEBUGGING CODE               *****************/
+  #ifdef DEBUG
+  char buffer[255];
+  sprintf(buffer, "Average: %d\t\tSample: %d\t\tResult: %d",
+    average, sample, detect);
+  Serial.println(buffer);
+  #endif
+  /****************************************************************************/
+  
+  // Compare Sample to Average - If Sample is > 2*average: Spike Detected
+  return detect;
 }
 
 uint32_t timepassed(uint32_t timeLeft, unsigned long lastTime) {
@@ -105,9 +150,9 @@ void loop() {
   static unsigned long lastUSec = 0; // Last time which was sampled.
   static uint32_t timeRemaining = 0; // Time remaining until fan start.
   static uint32_t fanTimeRemain = 0; // Time remaining of fan run.
-  static bool motionDetected = false; // Motion has been detected.
   static bool fanRunning = false; // Control indicator that fan is running.
   controlState nextState = state; // Next state system will operate in.
+  bool motionDetected = false; // Motion has been detected.
   bool manualActivate = false; // Manually activated by pushbutton.
 
   // Decrement timers as needed.
@@ -121,7 +166,7 @@ void loop() {
   lastUSec = micros(); // Update Time Reference
 
   // Read Inputs
-  motionDetected |= digitalRead(MOTION_INPUT_PIN);
+  motionDetected = qualifyAnalog();
   manualActivate = digitalRead(PUSHBUTTON_INPUT_PIN);
 
   // Indicate (internally) that Motion has been Detected
@@ -162,6 +207,7 @@ void loop() {
       } else {
         // Otherwise set the countdown timer to its maximum.
         timeRemaining = c_DELAY_TIME;
+        nextState = controlState::IDLE;
       }
       break;
       /**********************  END DETECTED STATE  ****************************/
@@ -170,7 +216,6 @@ void loop() {
       /**********************    ACTIVATE STATE    ****************************/
       Serial.println("State: ACTIVATE");
       fanRunning = true;
-      motionDetected = false;
       fanTimeRemain = c_RUN_TIME; // Set fan runtime to maximum
       digitalWrite(RELAY_OUTPUT_PIN, true); // Turn On
       digitalWrite(LED_OUTPUT_PIN, true);
