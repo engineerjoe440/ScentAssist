@@ -30,6 +30,7 @@ const uint32_t c_RUN_TIME = 120000000;            // 2 Minutes
 const uint32_t c_HEARTBEAT_BLINK_TIME = 5000000;  // 5 Seconds
 const uint32_t c_BLOCK_DETECTION_DELAY = 3000000; // 3 Seconds
 const uint32_t c_WAITING_BLINK_TIME = 100000;     // 100 Milliseconds
+const float c_IIR_COEF = 0.50;
 
 /*************************** STATE ENUMERATIONS *******************************/
 enum controlState {
@@ -76,6 +77,11 @@ bool qualifyAnalog() {
     average += readings[i];
   }
   average = average / FILTER_LENGTH;
+
+  // Run Sample through Filter
+  sample = uint8_t(
+    (float(average) * c_IIR_COEF) + (float(sample) * (1-c_IIR_COEF))
+  );
 
   // Load the Most Recent Sample
   readings[readingIndex] = sample;
@@ -152,13 +158,16 @@ void loop() {
   static uint32_t timeRemaining = 0; // Time remaining until fan start.
   static uint32_t stopDetection = 0; // Blocking condition for motion detect.
   static uint32_t fanTimeRemain = 0; // Time remaining of fan run.
+  static uint32_t blockMotionIn = 0; // Time to block motion sensor input.
   static bool fanRunning = false; // Control indicator that fan is running.
   controlState nextState = state; // Next state system will operate in.
   bool motionDetected = false; // Motion has been detected.
   bool manualActivate = false; // Manually activated by pushbutton.
 
   // Read Inputs
-  motionDetected = qualifyAnalog();
+  if (blockMotionIn == 0) {
+    motionDetected = qualifyAnalog();
+  }
   manualActivate = digitalRead(PUSHBUTTON_INPUT_PIN);
 
   // Indicate (internally) that Motion has been Detected
@@ -177,6 +186,9 @@ void loop() {
   }
   if (stopDetection > 0) {
     stopDetection = timepassed(stopDetection, lastUSec);
+  }
+  if (blockMotionIn > 0) {
+    blockMotionIn = timepassed(blockMotionIn, lastUSec);
   }
   if (fanTimeRemain > 0) {
     fanTimeRemain = timepassed(fanTimeRemain, lastUSec);
@@ -199,14 +211,14 @@ void loop() {
       if (motionDetected && (stopDetection == 0)) {
         // Move to the Detected State
         nextState = controlState::DETECTED;
-      } else if (manualActivate) {
+      } else if (fanRunning && manualActivate) {
+        // Deactivate Fan
+        nextState = controlState::RESET;
+      } else if (manualActivate && !fanRunning) {
         // Move to Activate Fan, Immediately
         nextState = controlState::ACTIVATE;
       } else if ((fanTimeRemain == 0) && fanRunning) {
         // Move to Deactivate Fan
-        nextState = controlState::RESET;
-      } else if (fanRunning && manualActivate) {
-        // Deactivate Fan
         nextState = controlState::RESET;
       }
       break;
@@ -248,8 +260,18 @@ void loop() {
       /**********************     RESET STATE      ****************************/
       Serial.println("State: RESET");
       fanRunning = false;
+      fanTimeRemain = 0;
+      timeRemaining = 0;
+      blockMotionIn = 5 * c_BLOCK_DETECTION_DELAY; // Block Motion Sensor Input.
       digitalWrite(RELAY_OUTPUT_PIN, false); // Turn Off
       digitalWrite(LED_OUTPUT_PIN, false);
+
+      // Delay when manually deactivated
+      if (manualActivate) {
+        Serial.println("Delay for Debounce.");
+        delay(c_BLOCK_DETECTION_DELAY / 1000);
+        Serial.println("Delay Expired.");
+      }
 
       nextState = controlState::IDLE;
       break;
