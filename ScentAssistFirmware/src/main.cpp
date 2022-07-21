@@ -30,6 +30,7 @@ const uint32_t c_RUN_TIME = 120000000;            // 2 Minutes
 const uint32_t c_HEARTBEAT_BLINK_TIME = 5000000;  // 5 Seconds
 const uint32_t c_BLOCK_DETECTION_DELAY = 3000000; // 3 Seconds
 const uint32_t c_WAITING_BLINK_TIME = 100000;     // 100 Milliseconds
+const uint32_t c_DETECTION_INTER_DELAY = 100000;  // 100 Milliseconds
 const float c_IIR_COEF = 0.50;
 
 /*************************** STATE ENUMERATIONS *******************************/
@@ -62,6 +63,29 @@ void setup() {
   }
 
   Serial.println("READY.");
+}
+
+uint32_t timepassed(uint32_t timeLeft, unsigned long lastTime) {
+  /*******   Evaluate the difference, do not allow negative-overflow.   *******/
+  uint32_t timeElapsed;
+
+  timeElapsed = uint32_t(micros() - lastTime);
+
+  // Evaluate Time Remaining, 0 as an absolute minimum.
+  if (timeElapsed < timeLeft) {
+    timeLeft -= timeElapsed;
+  } else {
+    timeLeft = 0;
+  }
+
+  return timeLeft;
+}
+
+bool qualifyAllBits(uint16_t val) {
+  /*******             Evaluate whether all bits are set.               *******/
+  uint16_t mask = (1ULL << 16) - 1;
+  val &= mask;
+  return val == mask;
 }
 
 bool qualifyAnalog() {
@@ -108,22 +132,6 @@ bool qualifyAnalog() {
   return detect;
 }
 
-uint32_t timepassed(uint32_t timeLeft, unsigned long lastTime) {
-  /*******   Evaluate the difference, do not allow negative-overflow.   *******/
-  uint32_t timeElapsed;
-
-  timeElapsed = uint32_t(micros() - lastTime);
-
-  // Evaluate Time Remaining, 0 as an absolute minimum.
-  if (timeElapsed < timeLeft) {
-    timeLeft -= timeElapsed;
-  } else {
-    timeLeft = 0;
-  }
-
-  return timeLeft;
-}
-
 void blink(uint32_t blinkFrequency) {
   /*******   Blink the LED at a specified frequency of milliseconds.    *******/
   static unsigned long lastUSec = 0;
@@ -159,15 +167,31 @@ void loop() {
   static uint32_t stopDetection = 0; // Blocking condition for motion detect.
   static uint32_t fanTimeRemain = 0; // Time remaining of fan run.
   static uint32_t blockMotionIn = 0; // Time to block motion sensor input.
+  static uint32_t sampleReadTime = 0; // Time between qualifying motion samples.
+  static uint16_t detectionSet = 0; // Set of detection samples.
   static bool fanRunning = false; // Control indicator that fan is running.
   controlState nextState = state; // Next state system will operate in.
   bool motionDetected = false; // Motion has been detected.
   bool manualActivate = false; // Manually activated by pushbutton.
+  bool detect; // Instantaneous Motion detection.
 
-  // Read Inputs
+  // Read and Qualify Motion Input
   if (blockMotionIn == 0) {
-    motionDetected = qualifyAnalog();
+    detect = qualifyAnalog();
+
+    if (sampleReadTime == 0) {
+      detectionSet = detectionSet << 1; // Shift oldest sample off
+      detectionSet |= uint16_t(detect); // Set Lowest Bit According to Detection
+      Serial.println(detectionSet);
+      sampleReadTime = c_DETECTION_INTER_DELAY;
+    } else {
+      sampleReadTime = timepassed(sampleReadTime, lastUSec);
+    }
+
+    motionDetected = qualifyAllBits(detectionSet);
   }
+
+  // Read Pushbutton
   manualActivate = digitalRead(PUSHBUTTON_INPUT_PIN);
 
   // Indicate (internally) that Motion has been Detected
