@@ -31,7 +31,7 @@ const uint32_t c_HEARTBEAT_BLINK_TIME = 5000000;  // 5 Seconds
 const uint32_t c_BLOCK_DETECTION_DELAY = 3000000; // 3 Seconds
 const uint32_t c_WAITING_BLINK_TIME = 100000;     // 100 Milliseconds
 const uint32_t c_DETECTION_INTER_DELAY = 100000;  // 100 Milliseconds
-const float c_IIR_COEF = 0.50;
+const float c_IIR_COEF = 0.40;
 
 /*************************** STATE ENUMERATIONS *******************************/
 enum controlState {
@@ -182,7 +182,6 @@ void loop() {
     if (sampleReadTime == 0) {
       detectionSet = detectionSet << 1; // Shift oldest sample off
       detectionSet |= uint16_t(detect); // Set Lowest Bit According to Detection
-      Serial.println(detectionSet);
       sampleReadTime = c_DETECTION_INTER_DELAY;
     } else {
       sampleReadTime = timepassed(sampleReadTime, lastUSec);
@@ -195,7 +194,7 @@ void loop() {
   manualActivate = digitalRead(PUSHBUTTON_INPUT_PIN);
 
   // Indicate (internally) that Motion has been Detected
-  digitalWrite(LED_BUILTIN, motionDetected);
+  digitalWrite(LED_BUILTIN, detect);
 
   // Decrement timers as needed.
   if (timeRemaining > 0) {
