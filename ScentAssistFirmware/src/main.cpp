@@ -26,7 +26,7 @@
 
 /***************************** TIME CONSTANTS *********************************/
 const uint32_t c_DELAY_TIME = 300000000;          // 5 Minutes
-const uint32_t c_RUN_TIME = 120000000;            // 2 Minutes
+const uint32_t c_RUN_TIME = 480000000;            // 8 Minutes
 const uint32_t c_HEARTBEAT_BLINK_TIME = 5000000;  // 5 Seconds
 const uint32_t c_BLOCK_DETECTION_DELAY = 3000000; // 3 Seconds
 const uint32_t c_WAITING_BLINK_TIME = 100000;     // 100 Milliseconds
@@ -81,9 +81,9 @@ uint32_t timepassed(uint32_t timeLeft, unsigned long lastTime) {
   return timeLeft;
 }
 
-bool qualifyAllBits(uint16_t val) {
+bool qualifyAllBits(uint8_t val) {
   /*******             Evaluate whether all bits are set.               *******/
-  uint16_t mask = (1ULL << 16) - 1;
+  uint8_t mask = (1ULL << 8) - 1;
   val &= mask;
   return val == mask;
 }
@@ -168,7 +168,7 @@ void loop() {
   static uint32_t fanTimeRemain = 0; // Time remaining of fan run.
   static uint32_t blockMotionIn = 0; // Time to block motion sensor input.
   static uint32_t sampleReadTime = 0; // Time between qualifying motion samples.
-  static uint16_t detectionSet = 0; // Set of detection samples.
+  static uint8_t detectionSet = 0; // Set of detection samples.
   static bool fanRunning = false; // Control indicator that fan is running.
   controlState nextState = state; // Next state system will operate in.
   bool motionDetected = false; // Motion has been detected.
@@ -181,7 +181,7 @@ void loop() {
 
     if (sampleReadTime == 0) {
       detectionSet = detectionSet << 1; // Shift oldest sample off
-      detectionSet |= uint16_t(detect); // Set Lowest Bit According to Detection
+      detectionSet |= uint8_t(detect); // Set Lowest Bit According to Detection
       sampleReadTime = c_DETECTION_INTER_DELAY;
     } else {
       sampleReadTime = timepassed(sampleReadTime, lastUSec);
